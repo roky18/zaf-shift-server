@@ -36,7 +36,7 @@ app.use(express.json());
 app.use(cors());
 
 const verifyFBToken = async (req, res, next) => {
-  console.log("headers in the middleware", req.headers?.authorization);
+  // console.log("headers in the middleware", req.headers?.authorization);
   const token = req.headers.authorization;
 
   if (!token) {
@@ -46,7 +46,7 @@ const verifyFBToken = async (req, res, next) => {
   try {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
-    console.log(decoded);
+    // console.log(decoded);
     req.decoded_email = decoded.email;
     next();
   } catch (err) {
@@ -76,11 +76,33 @@ async function run() {
     const paymentsCollection = db.collection("payments");
     const riderCollection = db.collection("rider");
 
+    //middle admin before allowing admin activity
+    //must be used after verifyFBToken
+
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden a access" });
+      }
+      next();
+    };
+
     // users related Api---->>
     app.get("/users", verifyFBToken, async (req, res) => {
       const cursor = usersCollection.find();
       const result = await cursor.toArray();
       res.send(result);
+    });
+    app.get("/users/:id", async (req, res) => {});
+    app.get("/users/:email/role", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      res.send({ role: user?.role || "user" });
+      // console.log(user,email)
     });
 
     app.post("/users", async (req, res) => {
@@ -88,6 +110,7 @@ async function run() {
       user.role = "user";
       user.createdAt = new Date();
       const email = user.email;
+      const photoURL = user.photoURL;
 
       const userExists = await usersCollection.findOne({ email });
 
@@ -99,18 +122,23 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users/:id", async (req, res) => {
-      const id = req.params.id;
-      const roleInfo = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          role: roleInfo.role,
-        },
-      };
-      const result = await usersCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/:id/role",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const roleInfo = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            role: roleInfo.role,
+          },
+        };
+        const result = await usersCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
 
     // parcel Api---->>
     app.get("/parcels", async (req, res) => {
@@ -177,7 +205,7 @@ async function run() {
         success_url: `${process.env.SITE_DOMAIN}/dashbord/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashbord/payment-canceled`,
       });
-      console.log(session);
+      // console.log(session);
       res.send({ url: session.url });
     });
 
@@ -280,7 +308,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/riders/:id", verifyFBToken, async (req, res) => {
+    app.patch("/riders/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const status = req.body.status;
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
