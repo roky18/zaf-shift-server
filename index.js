@@ -97,7 +97,7 @@ async function run() {
       const log = {
         trackingId,
         status,
-        details: status.split("-").join(" "),
+        details: status.split("_").join(" "),
         createdAt: new Date(),
       };
       const result = await trackingsCollection.insertOne(log);
@@ -216,8 +216,13 @@ async function run() {
 
     app.post("/parcels", async (req, res) => {
       const parcel = req.body;
+      const trackingId = generateTrackingId();
       // parcel created to times
       parcel.createdAt = new Date();
+      parcel.trackingId = trackingId;
+
+      logTracking(trackingId, "parcel_created");
+
       const result = await parcelsCollection.insertOne(parcel);
       res.send(result);
     });
@@ -320,6 +325,7 @@ async function run() {
         metadata: {
           parcelId: paymentInfo.parcelId,
           parcelName: paymentInfo.parcelName,
+          trackingId: paymentInfo.trackingId,
         },
         success_url: `${process.env.SITE_DOMAIN}/dashbord/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashbord/payment-canceled`,
@@ -347,7 +353,10 @@ async function run() {
         });
       }
 
-      const trackingId = generateTrackingId();
+      // use the previous tracking id created during the percel created which was set the session metadata during session creation---------->>>>
+      const trackingId = session.metadata.trackingId;
+
+      // -----------
 
       if (session.payment_status === "paid") {
         const id = session.metadata.parcelId;
@@ -356,7 +365,6 @@ async function run() {
           $set: {
             paymentStatus: "Paid",
             deliveryStatus: "pending-pickup",
-            trackingId: trackingId,
           },
         };
 
@@ -474,13 +482,24 @@ async function run() {
       res.send(result);
     });
 
+    // Tracking related api--->>>>>
+
+    app.get("/trackings/:trackingId/logs", async (req, res) => {
+      const trackingId = req.params.trackingId;
+      const query = { trackingId };
+      const result = await trackingsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // -------------------->>>>>
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
   } finally {
-    // Ensures that the client will close when you finish/errorr
+    // Ensures that the client will close when you finish/error
     // await client.close();
   }
 }
