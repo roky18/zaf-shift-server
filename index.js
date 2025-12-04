@@ -15,7 +15,17 @@ const crypto = require("crypto");
 // firebaseeee-->
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./zaf-shift-clint-firebase.json");
+// const serviceAccount = require("./zaf-shift-clint-firebase.json");
+
+// deploy releted----------->>>>
+
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
+// ----------->>>>
+
+
+const { count } = require("console");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -86,6 +96,17 @@ async function run() {
       const user = await usersCollection.findOne(query);
 
       if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden a access" });
+      }
+      next();
+    };
+
+    const verifyRider = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      if (!user || user.role !== "rider") {
         return res.status(403).send({ message: "forbidden a access" });
       }
       next();
@@ -214,6 +235,29 @@ async function run() {
       res.send(result);
     });
 
+    // extra pipeline------->>>>
+
+    app.get("/parcels/delivery-status/stats", async (req, res) => {
+      const pipeline = [
+        {
+          $group: {
+            _id: "$deliveryStatus",
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            status: "$_id",
+            count: 1,
+            // _id:0
+          },
+        },
+      ];
+      const result = await parcelsCollection.aggregate(pipeline).toArray();
+      res.send(result);
+    });
+    //----------------->>>>
+
     app.post("/parcels", async (req, res) => {
       const parcel = req.body;
       const trackingId = generateTrackingId();
@@ -294,6 +338,7 @@ async function run() {
         );
         // ------------?
       }
+
       const result = await parcelsCollection.updateOne(query, updatedDoc);
       // log tracking--->>>
 
@@ -382,22 +427,20 @@ async function run() {
           trackingId: trackingId,
         };
 
-        if (session.payment_status === "paid") {
-          const resultPayment = await paymentsCollection.insertOne(payment);
+        const resultPayment = await paymentsCollection.insertOne(payment);
 
-          logTracking(trackingId, "pending-pickup");
+        logTracking(trackingId, "pending-pickup");
 
-          res.send({
-            success: true,
-            modifyParcel: result,
-            trackingId: trackingId,
-            transactionId: session.payment_intent,
-            paymentInfo: resultPayment,
-          });
-        }
+        return res.send({
+          success: true,
+          modifyParcel: result,
+          trackingId: trackingId,
+          transactionId: session.payment_intent,
+          paymentInfo: resultPayment,
+        });
       }
 
-      res.send({ success: false });
+      return res.send({ success: false });
     });
 
     app.get("/payments", verifyFBToken, async (req, res) => {
@@ -494,10 +537,10 @@ async function run() {
     // -------------------->>>>>
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();

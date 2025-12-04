@@ -1,3 +1,4 @@
 node_modules
 .env
 zaf-shift-clint-firebase.json
+.vercel
